@@ -1,0 +1,155 @@
+// Prisma Schema for SubSync SaaS Subscription Management Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  MANAGER
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INVITED
+}
+
+enum PlanTier {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+}
+
+enum InvoiceStatus {
+  PAID
+  PENDING
+  FAILED
+}
+
+model User {
+  id              String        @id @default(uuid())
+  email           String        @unique
+  name            String
+  avatar          String?
+  role            Role          @default(USER)
+  status          UserStatus    @default(ACTIVE)
+  company         String?
+  apiKey          String?       @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  subscription    Subscription?
+  usage           Usage?
+  invoices        Invoice[]
+  auditLogs       AuditLog[]
+
+  @@map("users")
+}
+
+model Subscription {
+  id                    String             @id @default(uuid())
+  userId                String             @unique
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tier                  PlanTier           @default(FREE)
+  billingCycle          BillingCycle       @default(MONTHLY)
+  status                SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId      String?            @unique
+  stripeSubscriptionId  String?            @unique
+  stripePriceId         String?
+  currentPeriodStart    DateTime           @default(now())
+  currentPeriodEnd      DateTime
+  cancelAtPeriodEnd     Boolean            @default(false)
+  canceledAt            DateTime?
+  trialEndsAt           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@map("subscriptions")
+}
+
+model Usage {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiCallsCount     Int       @default(0)
+  apiCallsLimit     Int       @default(1000)
+  seatCount         Int       @default(1)
+  seatLimit         Int       @default(1)
+  bandwidthMb       Float     @default(0.0)
+  bandwidthLimitMb  Float     @default(5000.0) // 5 GB
+  storageUsedMb     Float     @default(0.0)
+  storageLimitMb    Float     @default(1000.0)
+  lastResetDate     DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("usages")
+}
+
+model Invoice {
+  id                 String        @id @default(uuid())
+  invoiceNumber      String        @unique
+  userId             String
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount             Float
+  currency           String        @default("usd")
+  status             InvoiceStatus @default(PAID)
+  billingReason      String        @default("subscription_cycle")
+  stripeInvoiceId    String?       @unique
+  pdfUrl             String?
+  hostedInvoiceUrl   String?
+  itemDescription    String
+  taxAmount          Float         @default(0.0)
+  subtotal           Float
+  paymentMethodLast4 String?       @default("4242")
+  paymentMethodBrand String?       @default("Visa")
+  paidAt             DateTime?     @default(now())
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@map("invoices")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  actorEmail  String
+  action      String   // e.g. "PLAN_UPGRADE", "PLAN_OVERRIDE", "USER_SUSPEND", "WEBHOOK_PROCESSED"
+  details     String   // JSON stringified details
+  ipAddress   String?  @default("127.0.0.1")
+  createdAt   DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model WebhookEvent {
+  id             String   @id @default(uuid())
+  stripeEventId  String   @unique
+  eventType      String
+  payload        String   // JSON payload
+  processed      Boolean  @default(true)
+  error          String?
+  createdAt      DateTime @default(now())
+
+  @@map("webhook_events")
+}
